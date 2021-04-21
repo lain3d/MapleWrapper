@@ -29,7 +29,8 @@ class wrapper():
         self.p_w = self.p_coords[2] - self.p_coords[0]
         self.p_h = self.p_coords[3] - self.p_coords[1]
         self.gold = (806, 629)
-        self.content_frame = [int(0.35*self.p_h), int(0.85*self.p_h), 0, int(self.p_w)]
+        # self.content_frame = [int(0.35*self.p_h), int(0.85*self.p_h), 0, int(self.p_w)]
+        self.content_frame = [int(0.10*self.p_h), int(0.85*self.p_h), 0, int(self.p_w)]
         self.ui_frame = [int(self.p_h - 41.01), None, None, int(0.7047 * self.gold[0])]
         self.d = d3dshot.create(capture_output="numpy", frame_buffer_size=50)
         self.name_t = make_tag(player_name)
@@ -89,6 +90,7 @@ class wrapper():
         self.adjust = {}
         content = self.d.screenshot(region=self.p_coords)[self.content_frame[0]:self.content_frame[1], self.content_frame[2]:self.content_frame[3]]
         for mob in mobs:
+            print(mob)
             download_sprites(mob)
             for template in sorted(listdir(join(self.assets_pth,"mobs", mob))):
                 if isfile(join(self.assets_pth,"mobs", mob, template)):
@@ -120,8 +122,10 @@ class wrapper():
     def postprocess_player(self, nametag_box):
         nametag_box[0] += (self.name_t_widthm - 25)
         nametag_box[2] += (-self.name_t_widthm + 25)
-        nametag_box[1] -= 70
+        # nametag_box[2] += 26
+        nametag_box[1] -= 83 #70
         nametag_box[3] -= 17
+        # print(nametag_box)
         return nametag_box
 
     def get_mobs(self):
@@ -145,6 +149,8 @@ class wrapper():
                 
             entity_list = ents[:10]
             entity_list = non_max_suppression_fast(entity_list, 0.75)
+            # from IPython import embed
+            # embed()
             return entity_list
     
     def get_stats(self, investigate=False):
@@ -223,8 +229,8 @@ class wrapper():
             self.p_coords = p_coords
             self.d.stop()
             self.d.capture(target_fps=fps, region=self.p_coords)
-            time.sleep(0.2) 
-        return 'updated'
+            time.sleep(0.05) 
+        # return 'updated'
 
     def start(self, fps=25):
         """
@@ -324,10 +330,12 @@ class wrapper():
             
             size = ents.shape[0]
             if size == 0:
+                # print("boo")
                 return False
 
+            # print("woo")
             return True
-
+    
     def display(self, im_name, im):
         cv2.imshow(f"{im_name}", im)
         cv2.waitKey()
