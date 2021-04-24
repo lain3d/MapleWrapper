@@ -8,12 +8,12 @@ import time
 
 MlpPolicy = ActorCriticPolicy
 
-model_name = "model73_cont.sav"
+model_name = "model75.sav"
 
-with wrapper("rich",["Snail", "Blue Snail", "Shroom", "Red Snail"]) as w:
+with wrapper("richr",["Snail", "Blue Snail", "Shroom", "Red Snail"]) as w:
     INSPECT = 0
     if INSPECT:
-        w.inspect('portals')
+        w.inspect('player')
     else:
         env = MapleEnv(w)
         model = PPO(MlpPolicy, env, verbose=3)
@@ -37,6 +37,6 @@ with wrapper("rich",["Snail", "Blue Snail", "Shroom", "Red Snail"]) as w:
         except KeyboardInterrupt:
             model.save(model_name)
             print("[~] Saved")
-        except Exception:
-            print("[!] Crashed due to unknown exception, saving model with different name to not overwrite any previous model...")
-            model.save(model_name + '.bak')
+        # except Exception:
+        #     print("[!] Crashed due to unknown exception, saving model with different name to not overwrite any previous model...")
+        #     model.save(model_name + '.bak')

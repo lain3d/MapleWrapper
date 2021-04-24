@@ -8,10 +8,21 @@ pydirectinput.FAILSAFE = False
 import cv2
 import random
 
+np.set_printoptions(precision=3)
+
 MAX_MOBS = 10
 SPEEDUP = 3
 EPISODE_TIME = 300 #600/SPEEDUP
 print("Episode Time: {}".format(EPISODE_TIME))
+
+NORMALIZE_PLAYER_X = float(806)
+NORMALIZE_PLAYER_Y = float(629)
+
+NORMALIZE_MOB_X = 806
+NORMALIZE_MOB_Y = 629
+
+NORMALIZE_CONNECTS_X = 629
+NORMALIZE_CONNECTS_Y = 629
 
 def normalized(a, axis=-1, order=2):
     l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
@@ -195,14 +206,25 @@ class MapleEnv(gym.Env):
         if len(self.connects):
             self.connects = self.connects[:, [0,1]]
             self.connects = np.reshape(self.connects, (1, self.connects.size))[0]
+            is_y = False
+            for i in range(0, len(self.connects)):
+                divisor = NORMALIZE_CONNECTS_X
+                if is_y:
+                    divisor = NORMALIZE_CONNECTS_Y
+                self.connects[i] = self.connects[i] / divisor
             while len(self.connects) < MAX_CONNECTS*2:
-                self.connects = np.append(self.connects, [-1])
+                self.connects = np.append(self.connects, [1]) # normalized
                 # self.connects = normalized(self.connects,order=2)[0]
         else:
             self.connects = np.ones(8)
 
         # from IPython import embed
         # embed()
+        self.player[0][0] = self.player[0][0] / NORMALIZE_PLAYER_Y
+        self.player[0][1] = self.player[0][1] / NORMALIZE_PLAYER_X
+        # from IPython import embed
+        # embed()
+        print("actual: {} {}".format(self.player[0][0], self.player[0][1]))
         state = np.concatenate((self.player[0], self.mobs, self.connects))
         return state, stats
 
@@ -221,7 +243,7 @@ class MapleEnv(gym.Env):
         if len(mob_coords) == 0:
             # mobs_X1 = np.full(1,410 - player_x1)
             mob_coords = np.zeros((10,2))
-            mob_coords.fill(1000)
+            mob_coords.fill(1) # normalized
         else:
             mob_coords = mob_coords[:, [1,2]]
             # sort by total distance to player
@@ -240,8 +262,8 @@ class MapleEnv(gym.Env):
             mob_coords_new = None
             for k in mob_coords_k.keys():
                 coord = mob_coords[k,None]
-                coord[0][0] = coord[0][0] - player_y1
-                coord[0][1] = coord[0][1] - player_x1
+                coord[0][0] = coord[0][0] / NORMALIZE_MOB_Y #- player_y1
+                coord[0][1] = coord[0][1] / NORMALIZE_MOB_X #- player_x1
                 if not isinstance(mob_coords_new, np.ndarray):
                     mob_coords_new = coord
                 else:
@@ -258,16 +280,9 @@ class MapleEnv(gym.Env):
         # todo trim too many mobs
         # todo normalize this
         add_on = np.zeros((needed_rows,2))
-        add_on.fill(1000)
-        # from IPython import embed
-        # embed()
+        add_on.fill(1) # normalized
+
         mob_coords = np.concatenate((mob_coords, add_on))
-
-            # mob_coords = sorted(mob_coords[:,2] - player_x1, key=abs)
-            #print(mob_coords)
-            # mobs_X1 = mob_coords[:1] # max 1 slot
-            # n_mobs = len(mobs_X1)            
-
         mob_coords = np.reshape(mob_coords, (1,mob_coords.size))[0]
         # mob_coords = normalized(mob_coords,order=1)[0]
         # from IPython import embed

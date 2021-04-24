@@ -66,7 +66,7 @@ class wrapper():
         
         top_left = max_loc
         bottom_right = (top_left[0] + w, top_left[1] + h)
-        return np.array([top_left[0], top_left[1], bottom_right[0], bottom_right[1]], dtype=np.int32)
+        return np.array([top_left[0], top_left[1], bottom_right[0], bottom_right[1]], dtype=np.float32)
 
     def multi_template_matching(self, img, template, threshold=0.7, method=cv2.TM_CCOEFF_NORMED, nms=True):
         """
@@ -118,6 +118,7 @@ class wrapper():
 
     def get_player(self):
         nametag_box = self.single_template_matching(self.content, self.name_t)
+        print(nametag_box)
         player = self.postprocess_player(nametag_box)
         return player
 
@@ -136,7 +137,7 @@ class wrapper():
         Currently must update template assets manually corresponding to mobs in map.
         Leverages multi-processing.
         """
-        ents = np.array([], dtype=np.int32)
+        ents = np.array([], dtype=np.float32)
 
         with concurrent.futures.ThreadPoolExecutor() as executor: 
             granular_entities = [executor.submit(self.multi_template_matching, self.content, template, threshold=0.65, method=cv2.TM_CCOEFF_NORMED, nms=False) for i, template in enumerate(self.mobs_t)]
@@ -153,7 +154,7 @@ class wrapper():
             entity_list = non_max_suppression_fast(entity_list, 0.75)
             # from IPython import embed
             # embed()
-            return entity_list
+            return np.array(entity_list, dtype=np.float32)
     
     def get_stats(self, investigate=False):
         """
@@ -346,7 +347,7 @@ class wrapper():
         """
         Get coordinates of ropes/ladders connecting platforms
         """
-        ents = np.array([], dtype=np.int32)
+        ents = np.array([], dtype=np.float32)
         with concurrent.futures.ThreadPoolExecutor() as executor: 
             granular_entities = [executor.submit(self.multi_template_matching, self.content, template, threshold=0.90, method=cv2.TM_CCOEFF_NORMED, nms=False) for i, template in enumerate(self.connects_t)]
             for ent in granular_entities:
