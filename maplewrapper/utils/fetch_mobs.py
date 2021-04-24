@@ -22,6 +22,7 @@ def download_sprites(mob_name):
     pth = pathlib.Path(__file__).resolve().parents[1]
     
     output_dir = join(pth, "templates","mobs", mob_name)
+    print(output_dir)
     if not os.path.exists(output_dir) or len(os.listdir(output_dir)) == 0:
         with open(join(pth, "utils", "mobs.txt"), "r") as f:
             l = f.readlines() 
@@ -34,7 +35,7 @@ def download_sprites(mob_name):
             except KeyError:
                 raise Invalid_Mob_Name(f"Please verify '{mob_name}' spelling and confirm it is a valid entry at: https://github.com/vinmorel/MapleWrapper/blob/master/maplewrapper/utils/mobs.txt")
 
-            api = f"https://maplestory.io/api/GMS/83/mob/{mob_id}/download"
+            api = f"https://maplestory.io/api/GMS/62/mob/{mob_id}/download"
 
             save_dir = join(output_dir, f"{mob_name}.zip")
             download_url(api, save_dir, chunk_size=128)

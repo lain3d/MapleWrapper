@@ -4,7 +4,25 @@ from gym import spaces
 from maplewrapper import wrapper
 import numpy as np
 import pydirectinput
+pydirectinput.FAILSAFE = False
 import cv2
+import random
+
+MAX_MOBS = 10
+SPEEDUP = 3
+EPISODE_TIME = 300 #600/SPEEDUP
+print("Episode Time: {}".format(EPISODE_TIME))
+
+def normalized(a, axis=-1, order=2):
+    l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
+    l2[l2==0] = 1
+    return a / np.expand_dims(l2, axis)
+
+def get_distance(o1, o2):
+    x = o1[0] - o2[0]
+    y = o1[3] - o2[3]
+    d = pow(pow(x,2) + pow(y,2), 0.5)
+    return d
 
 class MapleEnv(gym.Env):
     """
@@ -36,6 +54,7 @@ class MapleEnv(gym.Env):
     
     metadata = {'render.modes': ['human']}
 
+
     def __init__(self,w):
         pydirectinput.PAUSE = 0.0
 
@@ -43,10 +62,11 @@ class MapleEnv(gym.Env):
         self.lvl, self.max_hp, self.max_mp, self.max_exp = self.w.get_basestats()
         self.B_X = 850 # Bounding box max X 
 
-        self.Min = np.array([0] * 4,dtype=np.float32)
-        self.Max = np.array([self.B_X] * 2 + [1] * 2 ,dtype=np.float32)
+        array_size = 32 #24
+        self.Min = np.array([0] * array_size,dtype=np.float32)
+        self.Max = np.array([self.B_X] * 2 + [1] * (array_size-2) ,dtype=np.float32)
 
-        self.action_space = spaces.Discrete(4)
+        self.action_space = spaces.Discrete(6)
         self.observation_space = spaces.Box(self.Min, self.Max, dtype=np.float32)
 
         self.state = None
@@ -56,11 +76,17 @@ class MapleEnv(gym.Env):
         self.actions_d = {
             '0' : 'left',
             '1' : 'right',
-            '2' : 'ctrl',
-            '3' : 'shift',
-            'hp' : 'pageup',
-            'mp' : 'delete',
-            'pickup' : 'z'
+            '2' : 'a',
+            # '3' : 'shift',
+            # '3' : 'd,up',
+            '3' : 'up',
+            # '5' : 'd',
+            '4' : 'd,right,up',
+            '5' : 'd,left,up',
+            # '6' : 'down,d',
+            'hp' : 't',
+            'mp' : 'y',
+            'pickup' : 's',
         }
 
         self.reward_threshold = 20.0
@@ -69,6 +95,9 @@ class MapleEnv(gym.Env):
         self.id = "MapleBot"
         self.facing = None
         self.random_t_keydown = 0.01
+        self.portal_close = False
+        self.close_mobs = False
+        self.last_action = None
 
     def step(self,action):
         """
@@ -117,6 +146,8 @@ class MapleEnv(gym.Env):
 
         self.state = np.concatenate((self.new_p_state,self.facing,self.attacked))
 
+        # self.render()
+
         # heal if necessary 
         if new_stats[1]/self.max_hp < 0.5:
             self.take_action('hp')
@@ -124,11 +155,11 @@ class MapleEnv(gym.Env):
         if new_stats[2]/self.max_mp < 0.2:
             self.take_action('mp')
         # random pickup
-        if np.random.binomial(1,0.3):
-            self.take_action('pickup')
+        # if np.random.binomial(1,0.3):
+        #     self.take_action('pickup')
         # terminate episode if t 
         self.current_time = time.time()
-        if int(self.current_time - self.start_time) >= 300:
+        if int(self.current_time - self.start_time) >= EPISODE_TIME:
             self.done = 1
 
         return self.state, self.reward, self.done, {}
@@ -142,12 +173,37 @@ class MapleEnv(gym.Env):
         self.done = 0
         self.start_time = time.time()
         return self.state
-
+        
     def get_partial_state(self):
-        self.player, stats, self.mobs = self.w.observe()
-        self.player = np.array([self.player[2]])
-        self.mobs = self.sort_mobs(self.mobs,self.player)
-        state = np.concatenate((self.player, self.mobs))
+        self.player, stats, self.mobs, self.connects, self.portals = self.w.observe()
+        self.portal_close = False
+        # print("portals: {}".format(self.portals))
+        for portal in self.portals:
+            d = get_distance(self.player, portal)
+            print("[~] Distance to {} from player {}: {}".format(portal, self.player, d))
+            if d < 100:
+                self.portal_close = True
+        
+        self.player = np.array([self.player[1:3]])
+        # self.player = np.array([self.player[2]])
+        # self.mobs = self.sort_mobs(self.mobs,self.player)
+        # print(self.player)
+        self.mobs = self.sort_mobs_v2(self.mobs,self.player[0][0], self.player[0][1])
+        
+        MAX_CONNECTS = 4
+        # todo actually sort
+        if len(self.connects):
+            self.connects = self.connects[:, [0,1]]
+            self.connects = np.reshape(self.connects, (1, self.connects.size))[0]
+            while len(self.connects) < MAX_CONNECTS*2:
+                self.connects = np.append(self.connects, [-1])
+                # self.connects = normalized(self.connects,order=2)[0]
+        else:
+            self.connects = np.ones(8)
+
+        # from IPython import embed
+        # embed()
+        state = np.concatenate((self.player[0], self.mobs, self.connects))
         return state, stats
 
     def sort_mobs(self,mob_coords,player_x1):
@@ -155,22 +211,109 @@ class MapleEnv(gym.Env):
             mobs_X1 = np.full(1,410 - player_x1)
         else:
             mob_coords = sorted(mob_coords[:,2] - player_x1, key=abs)
+            #print(mob_coords)
             mobs_X1 = mob_coords[:1] # max 1 slot
             n_mobs = len(mobs_X1)            
 
         return mobs_X1
 
+    def sort_mobs_v2(self,mob_coords,player_x1,player_y1):
+        if len(mob_coords) == 0:
+            # mobs_X1 = np.full(1,410 - player_x1)
+            mob_coords = np.zeros((10,2))
+            mob_coords.fill(1000)
+        else:
+            mob_coords = mob_coords[:, [1,2]]
+            # sort by total distance to player
+            mob_coords_k = {}
+            self.close_mobs = False
+            for i,coord in enumerate(mob_coords):
+                x = coord[1] - player_x1
+                y = coord[0] - player_y1
+                d = pow(pow(x, 2) + pow(y, 2), 0.5)
+                mob_coords_k[i] = d
+                if d < 60:
+                    self.close_mobs = True
+                # print("distance from {} to {},{} = {}".format(coord,player_x1,player_y1,d))
+
+            mob_coords_k = {k: v for k, v in sorted(mob_coords_k.items(), key=lambda item: item[1])}
+            mob_coords_new = None
+            for k in mob_coords_k.keys():
+                coord = mob_coords[k,None]
+                coord[0][0] = coord[0][0] - player_y1
+                coord[0][1] = coord[0][1] - player_x1
+                if not isinstance(mob_coords_new, np.ndarray):
+                    mob_coords_new = coord
+                else:
+                    mob_coords_new = np.concatenate((mob_coords_new,coord))
+
+            # from IPython import embed
+            # embed()
+
+            mob_coords = mob_coords_new
+
+        # concatenate missing mobs
+        
+        needed_rows = MAX_MOBS - mob_coords.shape[0]
+        # todo trim too many mobs
+        # todo normalize this
+        add_on = np.zeros((needed_rows,2))
+        add_on.fill(1000)
+        # from IPython import embed
+        # embed()
+        mob_coords = np.concatenate((mob_coords, add_on))
+
+            # mob_coords = sorted(mob_coords[:,2] - player_x1, key=abs)
+            #print(mob_coords)
+            # mobs_X1 = mob_coords[:1] # max 1 slot
+            # n_mobs = len(mobs_X1)            
+
+        mob_coords = np.reshape(mob_coords, (1,mob_coords.size))[0]
+        # mob_coords = normalized(mob_coords,order=1)[0]
+        # from IPython import embed
+        # embed()
+        return mob_coords
+
     def take_action(self,action):
+        #print(str(action))
+        # pydirectinput.keyDown("s")
+        self.last_action = action
         if action != None:
             if 'p' in str(action):
                 pydirectinput.press(self.actions_d[str(action)])
                 return None
             else:
+                s = self.actions_d[str(action)]
+                # if s == "left" or s == "right" or s == "up" or s == "d,right" or s == "d,left":
+                #     # self.random_t_keydown = random.random() * 1
+                #     self.random_t_keydown = 0.4
+                #     # print("z")
+                # else:
+                #     self.random_t_keydown = 0.4
+
+                if 'up' in s and self.portal_close:
+                    print("portal close!")
+                    return
+
+                print("taking action {} : {}".format(s, self.portal_close))
                 self.random_t_keydown = 0.09
                 
-                pydirectinput.keyDown(self.actions_d[str(action)])
-                time.sleep(self.random_t_keydown)
-                pydirectinput.keyUp(self.actions_d[str(action)])
+                key = self.actions_d[str(action)]
+                keys = key.split(",")
+                # print(keys)
+                pydirectinput.keyDown('s')
+                for i,k in enumerate(keys):
+                    pydirectinput.keyDown(k)
+                    if i == 2:
+                        time.sleep(0.8 / SPEEDUP)
+                    # time.sleep(0.1 / SPEEDUP)
+
+                time.sleep(self.random_t_keydown / SPEEDUP)
+
+                for k in keys:
+                    pydirectinput.keyUp(k)
+
+                pydirectinput.keyUp('s')
         
 
     def get_reward(self,old_stats,new_stats):
@@ -181,18 +324,36 @@ class MapleEnv(gym.Env):
         
         # Default penality 
         self.reward = -0.1
-        # Penality if too close to map borders
-        if self.new_p_state[0] < 125 or self.new_p_state[0] > 744:
+
+        # penalty if attack when no mobs closeby
+        # print("close_mobs: {} last_action: {}".format(self.close_mobs, self.last_action))
+        if self.close_mobs == False and self.last_action == 2:
             self.reward -= 0.1
+            print("ATTACK, NO CLOSE MOBS")
+
+        # Penality if too close to map borders
+        print(self.state)
+        # if self.new_p_state[1] < 125 or self.new_p_state[1] > 744:
+        #     self.reward -= 0.1
+        #     print("TOO CLOSE!")
+
+        # Penalty if too close to portal
+        # todo how to do this actually?
+        # if self.portal_close:
+            # self.reward -= 0.5
+
         # Reward if mob hit
-        if self.w.get_hitreg == True:
+        if self.w.get_hitreg() == True:
             self.reward += 0.5
+            print("GOOD HIT!")
         # reward if exp gains 
         if self.d_exp > 0 :
             self.reward += 0.5 + (self.d_exp/self.max_exp) * 250
+            print("exp reward")
         # re-extract base stats if level up
         if self.d_lvl >= 1:
             self.lvl, self.max_hp, self.max_mp, self.max_exp = self.w.get_basestats()
+            print("LEVEL UP!")
         return self.reward
 
     def render(self, mode='human',close=False):
@@ -202,11 +363,11 @@ class MapleEnv(gym.Env):
         pass
 
 if __name__ == "__main__":   
-    with wrapper("smashy", mobs=["Cynical Orange Mushroom"]) as w:
+    with wrapper("mrblue",["Horny Mushroom", "Zombie Mushroom"]) as w:
         env = MapleEnv(w)
         env.reset()
 
         while True:
             env.step(action=None)
-            print(env.w.get_hitreg())
+            #print(env.w.get_hitreg())
             # print(env.new_p_state[1])
