@@ -109,6 +109,7 @@ class MapleEnv(gym.Env):
         self.portal_close = False
         self.close_mobs = False
         self.last_action = None
+        self.connect_close = False
 
     def step(self,action):
         """
@@ -191,21 +192,21 @@ class MapleEnv(gym.Env):
         # print("portals: {}".format(self.portals))
         for portal in self.portals:
             d = get_distance(self.player, portal)
-            print("[~] Distance to {} from player {}: {}".format(portal, self.player, d))
+            # print("[PORTAL] Distance to {} from player {}: {}".format(portal, self.player, d))
             if d < 100:
                 self.portal_close = True
-        
-        self.player = np.array([self.player[1:3]])
-        # self.player = np.array([self.player[2]])
-        # self.mobs = self.sort_mobs(self.mobs,self.player)
-        # print(self.player)
-        self.mobs = self.sort_mobs_v2(self.mobs,self.player[0][0], self.player[0][1])
         
         MAX_CONNECTS = 4
         # todo actually sort
         if len(self.connects):
+            for connect in self.connects:
+                d = get_distance(self.player, connect)
+                print("[CONNECT] Distance to {} from player {}: {}".format(connect, self.player, d))
+                if d < 100:
+                    self.connect_close = True
             self.connects = self.connects[:, [0,1]]
             self.connects = np.reshape(self.connects, (1, self.connects.size))[0]
+
             is_y = False
             for i in range(0, len(self.connects)):
                 divisor = NORMALIZE_CONNECTS_X
@@ -217,6 +218,14 @@ class MapleEnv(gym.Env):
                 # self.connects = normalized(self.connects,order=2)[0]
         else:
             self.connects = np.ones(8)
+            # If no connects visible there are no close connects
+            self.connects_close = False
+
+        self.player = np.array([self.player[1:3]])
+        # self.player = np.array([self.player[2]])
+        # self.mobs = self.sort_mobs(self.mobs,self.player)
+        # print(self.player)
+        self.mobs = self.sort_mobs_v2(self.mobs,self.player[0][0], self.player[0][1])
 
         # from IPython import embed
         # embed()
@@ -311,7 +320,7 @@ class MapleEnv(gym.Env):
                     return
 
                 print("taking action {} : {}".format(s, self.portal_close))
-                self.random_t_keydown = 0.09
+                self.random_t_keydown = (random.random() * 1.4) / SPEEDUP #0.09
                 
                 key = self.actions_d[str(action)]
                 keys = key.split(",")
@@ -342,12 +351,17 @@ class MapleEnv(gym.Env):
 
         # penalty if attack when no mobs closeby
         # print("close_mobs: {} last_action: {}".format(self.close_mobs, self.last_action))
-        if self.close_mobs == False and self.last_action == 2:
+        if not self.close_mobs and self.last_action == 2:
             self.reward -= 0.1
             print("ATTACK, NO CLOSE MOBS")
 
+        # check if connect not close and last action was something other than left or right
+        if self.connect_close and (self.last_action != 0 or self.last_action != 1): 
+            self.reward -= 0.1
+            print("[CONNECT] unneeded action")
+
         # Penality if too close to map borders
-        print(self.state)
+        # print(self.state)
         # if self.new_p_state[1] < 125 or self.new_p_state[1] > 744:
         #     self.reward -= 0.1
         #     print("TOO CLOSE!")
