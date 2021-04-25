@@ -44,7 +44,8 @@ class wrapper():
         self.mobs_t = self.initialize_mobs_t(mobs)
         self.connects_t = [cv2.imread(join(self.assets_pth, "connects", f),0) for f in sorted(listdir(join(self.assets_pth,"connects"))) if isfile(join(self.assets_pth,"connects/", f))]
         self.portals_t = [cv2.imread(join(self.assets_pth, "portals", f),0) for f in sorted(listdir(join(self.assets_pth,"portals"))) if isfile(join(self.assets_pth,"portals/", f))]
-
+        self.climbing_t = [cv2.imread(join(self.assets_pth, "climbing", f),0) for f in sorted(listdir(join(self.assets_pth,"climbing"))) if isfile(join(self.assets_pth,"climbing/", f))]
+        # self.climbing_t = self.climbing_t = cv2.imread(join(self.assets_pth, "climbing", "climbing.png"),0)
     def __enter__(self):
         self.start()
         self.frame, self.content, self.ui = self.get_aoi(self.d.get_latest_frame(), cv2.COLOR_BGR2GRAY)
@@ -92,7 +93,7 @@ class wrapper():
         self.adjust = {}
         content = self.d.screenshot(region=self.p_coords)[self.content_frame[0]:self.content_frame[1], self.content_frame[2]:self.content_frame[3]]
         for mob in mobs:
-            print(mob)
+            # print(mob)
             download_sprites(mob)
             for template in sorted(listdir(join(self.assets_pth,"mobs", mob))):
                 if isfile(join(self.assets_pth,"mobs", mob, template)):
@@ -118,16 +119,53 @@ class wrapper():
 
     def get_player(self):
         nametag_box = self.single_template_matching(self.content, self.name_t)
-        print(nametag_box)
+        # print(nametag_box)
         player = self.postprocess_player(nametag_box)
         return player
+
+    # def get_climbing(self):
+    #     climbing = self.single_template_matching(self.content, self.climbing_t)
+    #     # print(nametag_box)
+    #     return climbing
+
+    def get_climbing(self):
+        ents = np.array([], dtype=np.int32)
+        with concurrent.futures.ThreadPoolExecutor() as executor: 
+            granular_entities = [executor.submit(self.multi_template_matching, self.content, template, threshold=0.94, method=cv2.TM_CCOEFF_NORMED, nms=False) for i, template in enumerate(self.climbing_t)]
+            for ent in granular_entities:
+                ents = np.append(ents, ent.result())
+
+        size = ents.shape[0]
+        chunks = size // 4
+        
+        if chunks != 0:
+            ents = ents.reshape(chunks,-1)
+
+        return ents[:1]
+
+    # def is_climbing(self):
+    #     climbing = self.single_template_matching(self.content, self.climbing_t[0])
+    #     from IPython import embed
+    #     embed()
+    #     # print(nametag_box)
+    #     if len(climbing):
+    #         return True
+
+    #     return False
+
+    def is_climbing(self):
+        climbing = self.get_climbing()
+        if len(climbing):
+            return True
+
+        return False
 
     def postprocess_player(self, nametag_box):
         nametag_box[0] += (self.name_t_widthm - 25)
         nametag_box[2] += (-self.name_t_widthm + 25)
         # nametag_box[2] += 26
         nametag_box[1] -= 83 #70
-        nametag_box[3] -= 17
+        nametag_box[3] -= 17 + 32
         # print(nametag_box)
         return nametag_box
 
@@ -268,13 +306,15 @@ class wrapper():
             t3 = executor.submit(self.get_mobs)
             t4 = executor.submit(self.get_connects)
             t5 = executor.submit(self.get_portals)
+            t6 = executor.submit(self.is_climbing)
             player = t1.result()
             stats = t2.result()
             mobs = t3.result()
             connects = t4.result()
             portals = t5.result()
-            if verbose: print('\n Player:',player,'\n Stats:',stats,'\n Mobs:',mobs, '\n Connects:', connects, '\n Portals:', portals)
-        return player, stats, mobs, connects, portals
+            climbing = t6.result()
+            if verbose: print('\n Player:',player,'\n Stats:',stats,'\n Mobs:',mobs, '\n Connects:', connects, '\n Portals:', portals, '\n Climbing', climbing)
+        return player, stats, mobs, connects, portals, climbing
 
     def stop(self):
         self.d.stop()
@@ -370,7 +410,7 @@ class wrapper():
         """
         ents = np.array([], dtype=np.int32)
         with concurrent.futures.ThreadPoolExecutor() as executor: 
-            granular_entities = [executor.submit(self.multi_template_matching, self.content, template, threshold=0.71, method=cv2.TM_CCOEFF_NORMED, nms=False) for i, template in enumerate(self.portals_t)]
+            granular_entities = [executor.submit(self.multi_template_matching, self.content, template, threshold=0.74, method=cv2.TM_CCOEFF_NORMED, nms=False) for i, template in enumerate(self.portals_t)]
             for ent in granular_entities:
                 ents = np.append(ents, ent.result())
 
@@ -411,7 +451,8 @@ class wrapper():
             'mobs_t' : [self.mobs_t, None],
             'base_stats' : [clr_ui, self.get_basestats],
             'connects' : [clr_content, self.get_connects],
-            'portals' : [clr_content, self.get_portals]
+            'portals' : [clr_content, self.get_portals],
+            'climbing' : [clr_content, self.get_climbing]
         }
 
         image = items[view][0]
@@ -420,7 +461,7 @@ class wrapper():
   
         if items[view][1] != None:
             boxes = items[view][1]() if ('stats' not in view) else items[view][1](True)
-            if view == 'player':
+            if view == 'player': #or view == 'climbing':
                 image = cv2.rectangle(image, (boxes[0],boxes[1]), (boxes[2],boxes[3]), clr, width) 
             elif view == 'mobs':
                 for box in boxes:

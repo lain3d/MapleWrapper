@@ -24,6 +24,11 @@ NORMALIZE_MOB_Y = 629
 NORMALIZE_CONNECTS_X = 629
 NORMALIZE_CONNECTS_Y = 629
 
+LEFT = 0
+RIGHT = 1
+ATTACK = 2
+UP = 3
+
 def normalized(a, axis=-1, order=2):
     l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
     l2[l2==0] = 1
@@ -110,6 +115,8 @@ class MapleEnv(gym.Env):
         self.close_mobs = False
         self.last_action = None
         self.connect_close = False
+        self.climbing = False
+        self.closest_mob_distance = None
 
     def step(self,action):
         """
@@ -150,7 +157,7 @@ class MapleEnv(gym.Env):
             self.attacked = np.array([0])
         self.stats = new_stats
 
-        # Determine facing dirzzzection 
+        # Determine facing direction 
         if action == 0:
             self.facing = np.array([action])
         if action == 1:
@@ -187,22 +194,24 @@ class MapleEnv(gym.Env):
         return self.state
         
     def get_partial_state(self):
-        self.player, stats, self.mobs, self.connects, self.portals = self.w.observe()
+        self.player, stats, self.mobs, self.connects, self.portals, self.climbing = self.w.observe()
         self.portal_close = False
         # print("portals: {}".format(self.portals))
         for portal in self.portals:
             d = get_distance(self.player, portal)
-            # print("[PORTAL] Distance to {} from player {}: {}".format(portal, self.player, d))
-            if d < 100:
+            print("[PORTAL] Distance to {} from player {}: {}".format(portal, self.player, d))
+            if d < 200:
                 self.portal_close = True
         
         MAX_CONNECTS = 4
         # todo actually sort
-        if len(self.connects):
+        self.connect_close = False
+        if not self.climbing and len(self.connects):
             for connect in self.connects:
-                d = get_distance(self.player, connect)
-                print("[CONNECT] Distance to {} from player {}: {}".format(connect, self.player, d))
-                if d < 100:
+                d = abs(self.player[0] - connect[0]) #get_distance(self.player, connect)
+                # print("[CONNECT] Distance to {} from player {}: {}".format(connect, self.player, d))
+                # print(d)
+                if d < 85:
                     self.connect_close = True
             self.connects = self.connects[:, [0,1]]
             self.connects = np.reshape(self.connects, (1, self.connects.size))[0]
@@ -221,19 +230,17 @@ class MapleEnv(gym.Env):
             # If no connects visible there are no close connects
             self.connects_close = False
 
-        self.player = np.array([self.player[1:3]])
+        # print(self.player)
+        # self.player = np.array([self.player[1:3]])
+        self.player = np.array([[self.player[3], self.player[2]]])
         # self.player = np.array([self.player[2]])
         # self.mobs = self.sort_mobs(self.mobs,self.player)
         # print(self.player)
         self.mobs = self.sort_mobs_v2(self.mobs,self.player[0][0], self.player[0][1])
 
-        # from IPython import embed
-        # embed()
         self.player[0][0] = self.player[0][0] / NORMALIZE_PLAYER_Y
         self.player[0][1] = self.player[0][1] / NORMALIZE_PLAYER_X
-        # from IPython import embed
-        # embed()
-        print("actual: {} {}".format(self.player[0][0], self.player[0][1]))
+        # print("actual: {} {}".format(self.player[0][0], self.player[0][1]))
         state = np.concatenate((self.player[0], self.mobs, self.connects))
         return state, stats
 
@@ -248,7 +255,7 @@ class MapleEnv(gym.Env):
 
         return mobs_X1
 
-    def sort_mobs_v2(self,mob_coords,player_x1,player_y1):
+    def sort_mobs_v2(self,mob_coords,player_y1,player_x1):
         if len(mob_coords) == 0:
             # mobs_X1 = np.full(1,410 - player_x1)
             mob_coords = np.zeros((10,2))
@@ -258,16 +265,29 @@ class MapleEnv(gym.Env):
             # sort by total distance to player
             mob_coords_k = {}
             self.close_mobs = False
+            self.closest_mob_distance = None
             for i,coord in enumerate(mob_coords):
                 x = coord[1] - player_x1
                 y = coord[0] - player_y1
                 d = pow(pow(x, 2) + pow(y, 2), 0.5)
                 mob_coords_k[i] = d
-                if d < 60:
+                if d < 115:
                     self.close_mobs = True
-                # print("distance from {} to {},{} = {}".format(coord,player_x1,player_y1,d))
+                # from IPython import embed
+                # embed()
+                if y >= 0: # if y > 0, mob is below or at same height as player
+                    if not self.closest_mob_distance:
+                        self.closest_mob_distance = x
+                    elif x < self.closest_mob_distance:
+                        self.closest_mob_distance = x
+                    # print("distance from {} to {},{} = {}".format(coord,player_x1,player_y1,d))
 
             mob_coords_k = {k: v for k, v in sorted(mob_coords_k.items(), key=lambda item: item[1])}
+            # print("closest mob distance: {}".format(self.closest_mob_distance))
+            # for k in mob_coords_k.keys():
+            #     print(mob_coords[k])
+            #     break
+            # print("player_y1: {} player_x1: {}".format(player_y1, player_x1))
             mob_coords_new = None
             for k in mob_coords_k.keys():
                 coord = mob_coords[k,None]
@@ -277,9 +297,6 @@ class MapleEnv(gym.Env):
                     mob_coords_new = coord
                 else:
                     mob_coords_new = np.concatenate((mob_coords_new,coord))
-
-            # from IPython import embed
-            # embed()
 
             mob_coords = mob_coords_new
 
@@ -294,8 +311,6 @@ class MapleEnv(gym.Env):
         mob_coords = np.concatenate((mob_coords, add_on))
         mob_coords = np.reshape(mob_coords, (1,mob_coords.size))[0]
         # mob_coords = normalized(mob_coords,order=1)[0]
-        # from IPython import embed
-        # embed()
         return mob_coords
 
     def take_action(self,action):
@@ -303,6 +318,41 @@ class MapleEnv(gym.Env):
         # pydirectinput.keyDown("s")
         self.last_action = action
         if action != None:
+
+            self.act_reward = 0
+            # penalty if attack when no mobs closeby
+            # print("close_mobs: {} last_action: {}".format(self.close_mobs, self.last_action))
+            if not self.close_mobs and action == 2:
+                self.act_reward -= 0.1
+                print("ATTACK, NO CLOSE MOBS")
+
+            # check if connect not close and last action was something other than left or right
+            if not self.climbing and not self.connect_close and (action != LEFT and action != RIGHT and action != ATTACK): #and action != UP): 
+                self.act_reward -= 0.1
+                print("[CONNECT] unneeded action")
+
+            if self.climbing:
+                if action != 3:
+                    self.act_reward -= 0.1
+                    print("[CLIMB] non-upward")
+                    # from IPython import embed
+                    # embed()
+                else:
+                    self.act_reward += 0.1
+                    print("[CLIMB correct")
+                    # from IPython import embed
+                    # embed()
+
+            if self.closest_mob_distance:
+                if self.closest_mob_distance > 0 and action == RIGHT:
+                    self.act_reward += 0.1
+                    print("MOB_D: Got closer right!")
+                    # from IPython import embed
+                    # embed()
+                elif self.closest_mob_distance < 0 and action == LEFT:
+                    self.act_reward += 0.1
+                    print("MOB_D: Got closer left!")
+
             if 'p' in str(action):
                 pydirectinput.press(self.actions_d[str(action)])
                 return None
@@ -349,22 +399,13 @@ class MapleEnv(gym.Env):
         # Default penality 
         self.reward = -0.1
 
-        # penalty if attack when no mobs closeby
-        # print("close_mobs: {} last_action: {}".format(self.close_mobs, self.last_action))
-        if not self.close_mobs and self.last_action == 2:
-            self.reward -= 0.1
-            print("ATTACK, NO CLOSE MOBS")
-
-        # check if connect not close and last action was something other than left or right
-        if self.connect_close and (self.last_action != 0 or self.last_action != 1): 
-            self.reward -= 0.1
-            print("[CONNECT] unneeded action")
-
+        self.reward += self.act_reward # but its always negative
+        print("act_reward: ", self.act_reward)
         # Penality if too close to map borders
         # print(self.state)
-        # if self.new_p_state[1] < 125 or self.new_p_state[1] > 744:
-        #     self.reward -= 0.1
-        #     print("TOO CLOSE!")
+        if self.new_p_state[1] < 125 or self.new_p_state[1] > 744:
+            self.reward -= 0.1
+            print("TOO CLOSE!")
 
         # Penalty if too close to portal
         # todo how to do this actually?
