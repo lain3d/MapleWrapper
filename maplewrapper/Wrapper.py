@@ -188,7 +188,7 @@ class wrapper():
             if chunks != 0:
                 ents = ents.reshape(chunks,-1)
                 
-            entity_list = ents[:10]
+            entity_list = ents[:4]
             entity_list = non_max_suppression_fast(entity_list, 0.75)
             # from IPython import embed
             # embed()
@@ -305,16 +305,16 @@ class wrapper():
             t2 = executor.submit(self.get_stats)
             t3 = executor.submit(self.get_mobs)
             t4 = executor.submit(self.get_connects)
-            t5 = executor.submit(self.get_portals)
-            t6 = executor.submit(self.is_climbing)
+            # t5 = executor.submit(self.get_portals)
+            t5 = executor.submit(self.is_climbing)
             player = t1.result()
             stats = t2.result()
             mobs = t3.result()
             connects = t4.result()
-            portals = t5.result()
-            climbing = t6.result()
-            if verbose: print('\n Player:',player,'\n Stats:',stats,'\n Mobs:',mobs, '\n Connects:', connects, '\n Portals:', portals, '\n Climbing', climbing)
-        return player, stats, mobs, connects, portals, climbing
+            # portals = t5.result()
+            climbing = t5.result()
+            if verbose: print('\n Player:',player,'\n Stats:',stats,'\n Mobs:',mobs, '\n Connects:', connects, '\n Climbing', climbing)
+        return player, stats, mobs, connects, climbing
 
     def stop(self):
         self.d.stop()
@@ -402,7 +402,12 @@ class wrapper():
         if chunks != 0:
             ents = ents.reshape(chunks,-1)
 
-        return ents
+        entity_list = ents[:10]
+        entity_list = non_max_suppression_fast(entity_list, 0.75)
+            # from IPython import embed
+            # embed()
+        return np.array(entity_list, dtype=np.float32)
+        # return ents
     
     def get_portals(self):
         """

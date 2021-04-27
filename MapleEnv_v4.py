@@ -10,8 +10,10 @@ import random
 
 np.set_printoptions(precision=3)
 
-MAX_MOBS = 10
-SPEEDUP = 3
+MAX_MOBS = 4
+MAX_CONNECTS = 4
+
+SPEEDUP = 1
 EPISODE_TIME = 300 #600/SPEEDUP
 print("Episode Time: {}".format(EPISODE_TIME))
 
@@ -28,6 +30,8 @@ LEFT = 0
 RIGHT = 1
 ATTACK = 2
 UP = 3
+JUMP_LEFT = 4
+JUMP_RIGHT = 5
 
 def normalized(a, axis=-1, order=2):
     l2 = np.atleast_1d(np.linalg.norm(a, order, axis))
@@ -78,7 +82,7 @@ class MapleEnv(gym.Env):
         self.lvl, self.max_hp, self.max_mp, self.max_exp = self.w.get_basestats()
         self.B_X = 850 # Bounding box max X 
 
-        array_size = 32 #24
+        array_size = 2 + MAX_MOBS*2 + MAX_CONNECTS*2 + 2 #32 #24
         self.Min = np.array([0] * array_size,dtype=np.float32)
         self.Max = np.array([self.B_X] * 2 + [1] * (array_size-2) ,dtype=np.float32)
 
@@ -117,6 +121,7 @@ class MapleEnv(gym.Env):
         self.connect_close = False
         self.climbing = False
         self.closest_mob_distance = None
+        self.now_climbing = False
 
     def step(self,action):
         """
@@ -194,16 +199,18 @@ class MapleEnv(gym.Env):
         return self.state
         
     def get_partial_state(self):
-        self.player, stats, self.mobs, self.connects, self.portals, self.climbing = self.w.observe()
+        current_climbing = self.climbing
+        self.player, stats, self.mobs, self.connects, self.climbing = self.w.observe()
+        if (current_climbing != self.climbing) and self.climbing:
+            self.now_climbing = True
         self.portal_close = False
         # print("portals: {}".format(self.portals))
-        for portal in self.portals:
-            d = get_distance(self.player, portal)
-            print("[PORTAL] Distance to {} from player {}: {}".format(portal, self.player, d))
-            if d < 200:
-                self.portal_close = True
+        # for portal in self.portals:
+        #     d = get_distance(self.player, portal)
+        #     print("[PORTAL] Distance to {} from player {}: {}".format(portal, self.player, d))
+        #     if d < 200:
+        #         self.portal_close = True
         
-        MAX_CONNECTS = 4
         # todo actually sort
         self.connect_close = False
         if not self.climbing and len(self.connects):
@@ -258,7 +265,7 @@ class MapleEnv(gym.Env):
     def sort_mobs_v2(self,mob_coords,player_y1,player_x1):
         if len(mob_coords) == 0:
             # mobs_X1 = np.full(1,410 - player_x1)
-            mob_coords = np.zeros((10,2))
+            mob_coords = np.zeros((MAX_MOBS,2))
             mob_coords.fill(1) # normalized
         else:
             mob_coords = mob_coords[:, [1,2]]
@@ -305,10 +312,13 @@ class MapleEnv(gym.Env):
         needed_rows = MAX_MOBS - mob_coords.shape[0]
         # todo trim too many mobs
         # todo normalize this
-        add_on = np.zeros((needed_rows,2))
-        add_on.fill(1) # normalized
 
-        mob_coords = np.concatenate((mob_coords, add_on))
+        if needed_rows > 0:
+            add_on = np.zeros((needed_rows,2))
+            add_on.fill(1) # normalized
+
+            mob_coords = np.concatenate((mob_coords, add_on))
+
         mob_coords = np.reshape(mob_coords, (1,mob_coords.size))[0]
         # mob_coords = normalized(mob_coords,order=1)[0]
         return mob_coords
@@ -325,23 +335,6 @@ class MapleEnv(gym.Env):
             if not self.close_mobs and action == 2:
                 self.act_reward -= 0.1
                 print("ATTACK, NO CLOSE MOBS")
-
-            # check if connect not close and last action was something other than left or right
-            if not self.climbing and not self.connect_close and (action != LEFT and action != RIGHT and action != ATTACK): #and action != UP): 
-                self.act_reward -= 0.1
-                print("[CONNECT] unneeded action")
-
-            if self.climbing:
-                if action != 3:
-                    self.act_reward -= 0.1
-                    print("[CLIMB] non-upward")
-                    # from IPython import embed
-                    # embed()
-                else:
-                    self.act_reward += 0.1
-                    print("[CLIMB correct")
-                    # from IPython import embed
-                    # embed()
 
             if self.closest_mob_distance:
                 if self.closest_mob_distance > 0 and action == RIGHT:
@@ -365,8 +358,8 @@ class MapleEnv(gym.Env):
                 # else:
                 #     self.random_t_keydown = 0.4
 
-                if 'up' in s and self.portal_close:
-                    print("portal close!")
+                if 'up' == s and not self.climbing: #self.portal_close:
+                    print("only for rope :)!")
                     return
 
                 print("taking action {} : {}".format(s, self.portal_close))
@@ -378,6 +371,9 @@ class MapleEnv(gym.Env):
                 pydirectinput.keyDown('s')
                 for i,k in enumerate(keys):
                     pydirectinput.keyDown(k)
+                    # print(k)
+                    if i == 1:
+                        time.sleep(0.28 / SPEEDUP)
                     if i == 2:
                         time.sleep(0.8 / SPEEDUP)
                     # time.sleep(0.1 / SPEEDUP)
@@ -403,7 +399,7 @@ class MapleEnv(gym.Env):
         print("act_reward: ", self.act_reward)
         # Penality if too close to map borders
         # print(self.state)
-        if self.new_p_state[1] < 125 or self.new_p_state[1] > 744:
+        if self.new_p_state[1] < 125/NORMALIZE_PLAYER_X or self.new_p_state[1] > 744/NORMALIZE_PLAYER_X:
             self.reward -= 0.1
             print("TOO CLOSE!")
 
@@ -411,6 +407,29 @@ class MapleEnv(gym.Env):
         # todo how to do this actually?
         # if self.portal_close:
             # self.reward -= 0.5
+
+        # check if connect not close and last action was something other than left or right
+        if not self.climbing and not self.connect_close and (self.last_action != LEFT and self.last_action != RIGHT and self.last_action != ATTACK): #and action != UP): 
+            self.reward -= 0.1
+            print("[CONNECT] unneeded action")
+
+        if self.now_climbing:
+            self.now_climbing = False
+            if self.last_action == JUMP_LEFT or self.last_action == JUMP_RIGHT:
+                self.reward += 0.2
+                # from IPython import embed
+                # embed()
+        elif self.climbing:
+            if self.last_action != 3:
+                self.reward -= 0.1
+                print("[CLIMB] non-upward")
+                # from IPython import embed
+                # embed()
+            else:
+                self.reward += 0.2
+                print("[CLIMB correct")
+                # from IPython import embed
+                # embed()
 
         # Reward if mob hit
         if self.w.get_hitreg() == True:
@@ -424,6 +443,8 @@ class MapleEnv(gym.Env):
         if self.d_lvl >= 1:
             self.lvl, self.max_hp, self.max_mp, self.max_exp = self.w.get_basestats()
             print("LEVEL UP!")
+
+        print("total reward: {}".format(self.reward))
         return self.reward
 
     def render(self, mode='human',close=False):
